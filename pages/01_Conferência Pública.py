@@ -240,28 +240,29 @@ if len(picked) == 6:
         st.caption(f"Conferindo {len(resultados)} jogos...")
         
         for r in resultados:
+            # Prepara o HTML do prêmio, se houver
             premio_html = f"<div style='color: {r['cor_pts']}; font-size: 11px; font-weight: bold; margin-top: 4px;'>{r['label']}</div>" if r['label'] else ""
             
-            # CORREÇÃO AQUI: Removemos os espaços do início das linhas do HTML
-            st.markdown(f"""
+            # --- CORREÇÃO: HTML COLADO NA MARGEM ESQUERDA ---
+            # Isso evita que o Markdown interprete como bloco de código
+            card_html = f"""
 <div class="player-card {r['css']}">
-    <div class="card-header">
-        <div>
-            <div class="card-name">{r['nome']}</div>
-            <div class="card-sub">{r['qtd']} dezenas</div>
-        </div>
-        <div style="text-align: center;">
-            <div class="card-points" style="color: {r['cor_pts']}; border: 1px solid {r['cor_pts']};">
-                {r['acertos']}
-            </div>
-            {premio_html}
-        </div>
-    </div>
-    <div class="card-dezenas">
-        {r['html']}
-    </div>
+<div class="card-header">
+<div style="flex: 1;">
+<div class="card-name">{r['nome']}</div>
+<div class="card-sub">{r['qtd']} dezenas</div>
 </div>
-""", unsafe_allow_html=True)
+<div style="text-align: center; min-width: 50px;">
+<div class="card-points" style="color: {r['cor_pts']}; border: 1px solid {r['cor_pts']};">{r['acertos']}</div>
+{premio_html}
+</div>
+</div>
+<div class="card-dezenas" style="display: flex; flex-wrap: wrap; gap: 2px;">
+{r['html']}
+</div>
+</div>
+"""
+            st.markdown(card_html, unsafe_allow_html=True)
 
 else:
     st.info("👆 Selecione as 6 dezenas acima para conferir.")
