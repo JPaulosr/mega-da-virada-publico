@@ -16,7 +16,7 @@ except ImportError:
     try:
         from utils_mb import load_bets, load_players, load_contributions, _to_int_list, money
     except ImportError as e:
-        st.error(f"Erro crítico: Não foi possível encontrar o arquivo 'utils_mb.py'. Certifique-se de que ele está na mesma pasta que este aplicativo. Detalhes: {e}")
+        st.error(f"Erro crítico: Não foi possível encontrar o arquivo 'utils_mb.py'. Certifique-se de que ele está na mesma pasta que este aplicativo no GitHub. Detalhes: {e}")
         st.stop()
 
 # --- CABEÇALHO ---
@@ -33,7 +33,9 @@ try:
 except Exception as e:
     st.error("⚠️ Não foi possível conectar ao banco de dados.")
     st.warning("Verifique se as credenciais (Secrets) estão configuradas corretamente no painel do Streamlit Cloud.")
-    st.code(str(e))
+    # Mostra o erro técnico apenas se necessário para debug
+    with st.expander("Ver detalhes do erro"):
+        st.code(str(e))
     st.stop()
 
 # Configuração de Valores
