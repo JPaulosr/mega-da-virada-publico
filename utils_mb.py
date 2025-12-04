@@ -14,36 +14,34 @@ PRICE_PER_GAME = 6.00
 
 @st.cache_resource
 def get_db_connection():
-    """
-    Cria conexão com a planilha do Google Sheets usando service account.
-
-    - Se NÃO existir a chave 'gcp_service_account' em st.secrets,
-      retorna None silenciosamente (modo "offline" para app público).
-    """
-    # Modo público / offline: sem credencial → sem conexão, mas sem erro visual
-    if "gcp_service_account" not in st.secrets:
-        return None
-
     try:
+        # Tenta pegar do st.secrets (funciona na nuvem e local se configurado)
         creds_dict = dict(st.secrets["gcp_service_account"])
-        credentials = Credentials.from_service_account_info(
-            creds_dict,
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive",
-            ],
-        )
-        client = gspread.authorize(credentials)
-        sh = client.open_by_key(SHEET_ID)
-        return sh
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+        client = gspread.authorize(creds)
+        sheet = client.open(SHEET_NAME)
+        return sheet
     except Exception as e:
-        # Aqui vale mostrar erro, porque teoricamente a credencial existe
-        st.error(f"Erro Conexão: {e}")
-        return None
-
+        # Se falhar, tenta procurar o arquivo secrets.toml manualmente (fallback local)
+        try:
+            # Caminho relativo padrão
+            import toml
+            creds_data = toml.load(".streamlit/secrets.toml")
+            creds_dict = creds_data["gcp_service_account"]
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+            client = gspread.authorize(creds)
+            sheet = client.open(SHEET_NAME)
+            return sheet
+        except:
+            st.error(f"Erro Conexão: {e}")
+            return None
 
 # --- AUXILIARES ---
 def money(val):
+    try:
+        val = float(val)
+    except:
+        val = 0.0
     return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def _to_int_list(data):
@@ -51,14 +49,12 @@ def _to_int_list(data):
     Converte dados variados (string, lista, set, tupla) em lista de inteiros.
     Remove caracteres indesejados como chaves {}, colchetes [] e aspas.
     """
-    # 1. Se já for lista, set ou tupla, tenta converter direto
     if isinstance(data, (list, tuple, set)):
         try:
             return sorted([int(x) for x in data if str(x).strip().isdigit()])
         except:
-            pass # Se falhar, tenta converter via string abaixo
+            pass 
 
-    # 2. Tratamento de string (Remove {}, [], '', "")
     s = str(data).replace("[", "").replace("]", "").replace("{", "").replace("}", "").replace("'", "").replace('"', "").replace(",", " ")
     try:
         return sorted([int(x) for x in s.split() if x.strip().isdigit()])
@@ -78,9 +74,9 @@ def load_data(tab_name):
 def load_players():
     df = load_data("jogadores")
     if not df.empty:
+        # Normaliza colunas para evitar erros de caixa alta/baixa
         df.columns = df.columns.str.strip().str.lower()
     
-    # Garante colunas mínimas
     req = ["player_id", "nome", "telefone"]
     for c in req:
         if c not in df.columns: df[c] = ""
@@ -88,19 +84,21 @@ def load_players():
     if "player_id" in df.columns:
         df["player_id"] = pd.to_numeric(df["player_id"], errors='coerce').fillna(0).astype(int)
     
-    return df[req]
+    return df[req] if not df.empty else pd.DataFrame(columns=req)
 
 def load_bets():
     df = load_data("apostas")
     req = ["id", "player_id", "apostador", "numeros", "custo_total", "conferido", "ts", "descricao"]
-    if df.empty: df = pd.DataFrame(columns=req)
+    
+    if df.empty: 
+        return pd.DataFrame(columns=req)
+        
     for c in req:
         if c not in df.columns: df[c] = ""
     
     if "conferido" in df.columns:
         df["conferido"] = df["conferido"].astype(str).str.upper().isin(["TRUE", "VERDADEIRO", "1", "SIM"])
     
-    # Recalcula qtd_numeros real
     if "numeros" in df.columns:
         df["qtd_numeros"] = df["numeros"].apply(lambda x: len(_to_int_list(x)))
     
@@ -119,6 +117,7 @@ def load_contributions():
     players = load_players()
     if not players.empty and "player_id" in df.columns:
         df["player_id"] = pd.to_numeric(df["player_id"], errors='coerce').fillna(0).astype(int)
+        # Faz o merge para garantir que temos o nome atualizado
         df = df.merge(players[["player_id", "nome"]], on="player_id", how="left")
         df["nome"] = df["nome"].fillna("Desconhecido")
     elif "nome" not in df.columns:
@@ -129,28 +128,23 @@ def load_contributions():
 # --- SALVAMENTO BLINDADO (FIX JSON) ---
 def save_to_sheet(tab_name, df):
     if df is None or df.empty:
-        if tab_name == "jogadores": return # Proteção contra zerar
+        if tab_name == "jogadores": return 
     
     sh = get_db_connection()
     if sh:
         ws = sh.worksheet(tab_name)
         df_save = df.copy()
         
-        # Remove colunas extras
         aux_cols = ["qtd_numeros", "n_jogos", "nome", "contrib_id"]
         if tab_name != "jogadores":
             df_save = df_save.drop(columns=[c for c in aux_cols if c in df_save.columns])
         else:
-            # Em jogadores, mantemos 'nome', removemos outros
             df_save = df_save.drop(columns=[c for c in ["qtd_numeros", "n_jogos", "contrib_id"] if c in df_save.columns])
 
-        # Converte bool para texto
         for c in ["conferido", "pago"]:
             if c in df_save.columns: df_save[c] = df_save[c].astype(str).str.upper()
             
-        # --- CORREÇÃO DO ERRO JSON ---
         df_save = df_save.fillna("") 
-        # -----------------------------
             
         ws.clear()
         ws.update([df_save.columns.values.tolist()] + df_save.values.tolist())
@@ -160,43 +154,37 @@ def save_players(df): save_to_sheet("jogadores", df)
 def save_bets(df): save_to_sheet("apostas", df)
 def save_contributions(df): save_to_sheet("contribuicoes", df)
 
-# --- NEGÓCIO ---
+# --- NEGÓCIO (ADMIN) ---
 
 def add_player(nome, telefone=""):
     df = load_players()
     new_id = 1
-    if not df.empty: new_id = df["player_id"].max() + 1
+    if not df.empty: 
+        max_val = pd.to_numeric(df["player_id"], errors='coerce').max()
+        if pd.notna(max_val):
+            new_id = int(max_val) + 1
+            
     new_row = {"player_id": new_id, "nome": nome, "telefone": telefone}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_players(df)
     return True
 
 def upsert_player(nome):
-    """
-    Busca um jogador pelo nome (case insensitive).
-    Se existir, retorna o player_id.
-    Se não existir, cria um novo e retorna o novo player_id.
-    """
     df = load_players()
     nome_clean = str(nome).strip()
     
-    # 1. Tenta achar existente
     if not df.empty:
-        # Filtra case insensitive
         match = df[df["nome"].astype(str).str.lower() == nome_clean.lower()]
         if not match.empty:
             return int(match.iloc[0]["player_id"])
             
-    # 2. Se não existe, cria
     new_id = 1
     if not df.empty:
-        # Garante que é numérico
-        max_id = pd.to_numeric(df["player_id"], errors='coerce').max()
-        if pd.notna(max_id):
-            new_id = int(max_id) + 1
+        max_val = pd.to_numeric(df["player_id"], errors='coerce').max()
+        if pd.notna(max_val):
+            new_id = int(max_val) + 1
             
     new_row = {"player_id": new_id, "nome": nome_clean, "telefone": ""}
-    # Concatenar e salvar
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
     save_players(df)
     return int(new_id)
@@ -264,6 +252,8 @@ def balances():
     df_contrib = load_contributions()
     
     bal_data = []
+    if df_players.empty: return pd.DataFrame()
+
     for pid in df_players["player_id"].unique():
         nome = df_players[df_players["player_id"]==pid]["nome"].iloc[0]
         
@@ -285,24 +275,23 @@ def balances():
         })
     return pd.DataFrame(bal_data)
 
-# --- FUNÇÃO ANTIGA (MANTIDA PARA COMPATIBILIDADE) ---
+# --- FUNÇÕES DE CONFERÊNCIA (PÚBLICO E ADMIN) ---
+
 def score_bet_against_draw(bet_data, draw_data):
     """
-    Retorna apenas o número de acertos (int).
+    Retorna apenas o número de acertos (int). Mantida para compatibilidade.
     """
     bet_list = _to_int_list(bet_data)
     draw_list = _to_int_list(draw_data)
     hits = set(bet_list).intersection(set(draw_list))
     return len(hits)
 
-# --- NOVA FUNÇÃO DETALHADA (ESSENCIAL PARA O PAINEL) ---
 def check_bet_results(bet_data, draw_data):
     """
     Calcula prêmios considerando desdobramento (apostas > 6 números).
     Retorna dict: {'senas': int, 'quinas': int, 'quadras': int, 'best_hits': int}
     """
     bet_list = _to_int_list(bet_data)
-    # Garante que draw_data seja uma lista limpa de inteiros, mesmo que venha como set ou string
     draw_list = _to_int_list(draw_data)
     draw_set = set(draw_list)
     
@@ -349,5 +338,4 @@ def calculate_draw_stats(bets_df, draw_numbers):
         results['quadras'] += res['quadras']
         results['quinas'] += res['quinas']
         results['senas'] += res['senas']
-
     return results
