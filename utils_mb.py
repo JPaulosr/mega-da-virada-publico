@@ -14,15 +14,33 @@ PRICE_PER_GAME = 6.00
 
 @st.cache_resource
 def get_db_connection():
+    """
+    Cria conexão com a planilha do Google Sheets usando service account.
+
+    - Se NÃO existir a chave 'gcp_service_account' em st.secrets,
+      retorna None silenciosamente (modo "offline" para app público).
+    """
+    # Modo público / offline: sem credencial → sem conexão, mas sem erro visual
+    if "gcp_service_account" not in st.secrets:
+        return None
+
     try:
         creds_dict = dict(st.secrets["gcp_service_account"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
-        client = gspread.authorize(creds)
-        sheet = client.open(SHEET_NAME)
-        return sheet
+        credentials = Credentials.from_service_account_info(
+            creds_dict,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        client = gspread.authorize(credentials)
+        sh = client.open_by_key(SHEET_ID)
+        return sh
     except Exception as e:
+        # Aqui vale mostrar erro, porque teoricamente a credencial existe
         st.error(f"Erro Conexão: {e}")
         return None
+
 
 # --- AUXILIARES ---
 def money(val):
@@ -331,4 +349,5 @@ def calculate_draw_stats(bets_df, draw_numbers):
         results['quadras'] += res['quadras']
         results['quinas'] += res['quinas']
         results['senas'] += res['senas']
+
     return results
