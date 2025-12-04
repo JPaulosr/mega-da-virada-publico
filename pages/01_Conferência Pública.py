@@ -8,315 +8,278 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from utils_mb import load_bets, load_players, load_contributions, _to_int_list, money
+from utils_mb import load_bets, load_players, check_bet_results, _to_int_list
 
-st.set_page_config(page_title="Resumo do Bolão", page_icon="📢", layout="wide")
-
-# --- CABEÇALHO ---
-st.title("📢 Transparência do Bolão 2025")
-st.markdown("Acompanhe a saúde financeira e os jogos do grupo.")
-st.divider()
-
-# --- CARREGAMENTO DE DADOS ---
-bets = load_bets()
-players = load_players()
-contrib = load_contributions()
-
-# Configuração de Valores
-VALOR_COTA = 50.00
-JOGOS_POR_COTA = 5
-CUSTO_JOGOS_INDIVIDUAIS = 30.00 # 5 jogos de R$ 6,00
-
-# Identificar ID do Fundo
-id_fundo = 0
-nome_fundo = "Fundo Bolão"
-if not players.empty:
-    for _, row in players.iterrows():
-        if "fundo" in str(row["nome"]).lower():
-            id_fundo = row["player_id"]
-            nome_fundo = row["nome"]
-            break
-
-# Cruzamento de nomes e Pagamentos
-player_map = {}
-pagamentos_map = {}
-jogos_por_pessoa = {}
-
-if not contrib.empty:
-    pagamentos_map = contrib[contrib["pago"]==True].groupby("player_id")["valor"].sum().to_dict()
-
-if not players.empty:
-    players["player_id"] = pd.to_numeric(players["player_id"], errors='coerce').fillna(0).astype(int)
-    player_map = players.set_index("player_id")["nome"].to_dict()
-
-# Contagem de jogos por pessoa
-if not bets.empty:
-    bets["player_id"] = pd.to_numeric(bets["player_id"], errors='coerce').fillna(0).astype(int)
-    # Conta quantos jogos cada ID tem
-    jogos_por_pessoa = bets["player_id"].value_counts().to_dict()
-
-qtd_jogadores_reais = 0
-if not players.empty:
-    qtd_jogadores_reais = players[~players['nome'].str.contains("Fundo", case=False, na=False)].shape[0]
-
-# --- CÁLCULOS GERAIS (CAIXA) ---
-total_arrecadado_geral = 0.0
-if not contrib.empty:
-    total_arrecadado_geral = contrib[contrib["pago"] == True]["valor"].sum()
-
-total_gasto_geral = 0.0 # Pagos/Feitos
-total_gasto_fila = 0.0  # Pendentes
-total_jogos_feitos = 0
-total_jogos_fila = 0
-
-df_feitos = pd.DataFrame()
-df_fila = pd.DataFrame()
-
-if not bets.empty:
-    bets["custo_total"] = pd.to_numeric(bets["custo_total"], errors='coerce').fillna(0)
-    
-    df_feitos = bets[bets["conferido"] == True].copy()
-    df_fila = bets[bets["conferido"] == False].copy()
-    
-    total_gasto_geral = df_feitos["custo_total"].sum()
-    total_gasto_fila = df_fila["custo_total"].sum()
-    
-    total_jogos_feitos = len(df_feitos)
-    total_jogos_fila = len(df_fila)
-
-saldo_geral = total_arrecadado_geral - total_gasto_geral
-
-# --- PAINEL FINANCEIRO (FIXO NO TOPO) ---
-st.subheader("💰 Caixa Geral (Prestação de Contas)")
-with st.container(border=True):
-    # Linha principal com 4 métricas
-    c1, c2, c3, c4 = st.columns(4)
-    
-    c1.metric(
-        "👥 Jogadores", 
-        qtd_jogadores_reais, 
-        help="Quantidade total de participantes no grupo."
-    )
-    
-    c2.metric(
-        "📥 Total Arrecadado", 
-        money(total_arrecadado_geral), 
-        help="Soma de todos os Pix recebidos (Cotas + Fundo)."
-    )
-    
-    cor_saldo = "normal" if saldo_geral >= 0 else "inverse"
-    c3.metric(
-        "🏦 Saldo Disponível", 
-        money(saldo_geral), 
-        delta="Em caixa", 
-        delta_color=cor_saldo
-    )
-    
-    # Nova Métrica: Valor Pendente para Jogos na Fila
-    c4.metric(
-        "⚠️ A Pagar (Jogos na Fila)", 
-        money(total_gasto_fila), 
-        help=f"Valor necessário para registrar os {total_jogos_fila} jogos que estão na fila."
-    )
-    
-    st.caption(f"💸 Total já gasto na lotérica (Jogos Feitos): **{money(total_gasto_geral)}** | 🎟️ Total de jogos cadastrados: **{total_jogos_feitos + total_jogos_fila}**")
-
-st.divider()
+st.set_page_config(page_title="Conferência Pública", page_icon="🤞", layout="wide")
 
 # ==========================================
-# ABAS PARA ORGANIZAÇÃO
+# ESTILO CSS PERSONALIZADO (VISUAL TV)
 # ==========================================
-tab_jogos, tab_status, tab_fundo = st.tabs(["📋 Lista de Jogos", "📊 Status (Pagou/Jogou?)", "🏦 Fundo Extra"])
-
-# ------------------------------------------
-# ABA 1: LISTA DE JOGOS (AGRUPADA)
-# ------------------------------------------
-with tab_jogos:
-    st.caption("Veja abaixo os jogos de cada participante.")
+st.markdown("""
+<style>
+    /* Fundo geral e fontes */
+    .block-container { padding-top: 2rem; padding-bottom: 5rem; }
     
-    subtab_feitos, subtab_fila = st.tabs([
-        f"✅ Registrados na Caixa ({total_jogos_feitos})", 
-        f"⏳ Aguardando Registro ({total_jogos_fila})"
-    ])
-
-    def render_game_list_grouped(df_jogos, cor_titulo):
-        if df_jogos.empty:
-            st.info("Nenhum jogo nesta lista.")
-            return
-
-        search = st.text_input("🔍 Buscar participante:", placeholder="Digite o nome...", key=f"search_{cor_titulo}").strip().lower()
-
-        # Prepara dados
-        dados_processados = []
-        for _, row in df_jogos.iterrows():
-            pid = pd.to_numeric(row.get("player_id", 0), errors="coerce")
-            pid = int(pid) if not pd.isna(pid) else 0
-            
-            nome_real = player_map.get(pid, row.get("apostador", "Desconhecido"))
-            if "fundo" in str(nome_real).lower():
-                nome_real = "🏢 FUNDO DO BOLÃO"
-            
-            if search and search not in str(nome_real).lower():
-                continue
-                
-            dados_processados.append({
-                "Nome": nome_real,
-                "Numeros": str(row["numeros"]),
-                "Custo": float(row.get("custo_total", 0)),
-                "ID": str(row['id'])
-            })
-        
-        if not dados_processados:
-            st.info("Nenhum jogo encontrado.")
-            return
-
-        df_proc = pd.DataFrame(dados_processados)
-        
-        # Agrupa por Nome
-        for nome, grupo in df_proc.groupby("Nome"):
-            grupo = grupo.sort_values("ID")
-            total_investido = grupo["Custo"].sum()
-            qtd_jogos = len(grupo)
-            
-            with st.container(border=True):
-                c_head1, c_head2 = st.columns([2, 1])
-                c_head1.markdown(f"### 👤 {nome}")
-                c_head2.markdown(f"<div style='text-align:right; color:#888;'>{qtd_jogos} jogos • {money(total_investido)}</div>", unsafe_allow_html=True)
-                st.divider()
-                
-                for _, jogo in grupo.iterrows():
-                    lista_nums = _to_int_list(jogo["Numeros"])
-                    numeros_fmt = "  ".join([f"{n:02d}" for n in lista_nums])
-                    qtd_dezenas = len(lista_nums)
-                    tipo_jogo = f"Bolão {qtd_dezenas}" if qtd_dezenas > 6 else "Simples"
-                    
-                    st.markdown(f"""
-                    <div style="background-color: rgba(255, 255, 255, 0.05); padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; border-left: 4px solid {cor_titulo}; display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <span style="font-family: monospace; font-size: 18px; font-weight: bold; color: {cor_titulo}; letter-spacing: 1px;">{numeros_fmt}</span><br>
-                            <span style="font-size: 12px; color: #aaa;">{tipo_jogo} • {money(jogo['Custo'])}</span>
-                        </div>
-                        <div style="font-size: 10px; color: #555;">ID: {jogo['ID'][:6]}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-    with subtab_feitos:
-        render_game_list_grouped(df_feitos, "#2e7d32") # Verde
-    with subtab_fila:
-        render_game_list_grouped(df_fila, "#ff9800") # Laranja
-
-# ------------------------------------------
-# ABA 2: QUEM PAGOU? (STATUS DETALHADO)
-# ------------------------------------------
-with tab_status:
-    st.subheader("👥 Status Financeiro e de Jogos")
+    /* Bolinhas de Sorteio (Seleção e Resultado) */
+    .lottery-ball {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 30% 30%, #ffffff, #e0e0e0);
+        color: #333;
+        font-weight: bold;
+        font-size: 16px;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+        margin: 2px;
+        border: 1px solid #ccc;
+    }
     
-    # Processa listas
-    lista_pagou = []
-    lista_devendo = []
+    /* Bolinha Selecionada / Acerto */
+    .ball-hit {
+        background: radial-gradient(circle at 30% 30%, #4CAF50, #2E7D32);
+        color: white;
+        border: 1px solid #1B5E20;
+        box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+        transform: scale(1.1);
+    }
     
+    /* Bolinha Erro (nos resultados) */
+    .ball-miss {
+        background: #f0f0f0;
+        color: #bbb;
+        border: 1px solid #ddd;
+        opacity: 0.6;
+    }
+
+    /* Botões de Seleção (Grid) */
+    div.stButton > button {
+        width: 100%;
+        border-radius: 8px;
+        font-weight: bold;
+        border: 1px solid #444;
+        transition: all 0.2s;
+    }
+    div.stButton > button:hover {
+        border-color: #4CAF50;
+        color: #4CAF50;
+        transform: translateY(-2px);
+    }
+
+    /* Card de Jogador */
+    .player-card {
+        background-color: #262730;
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-left: 5px solid #555;
+        transition: transform 0.2s;
+    }
+    .player-card:hover {
+        transform: scale(1.01);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+    .card-sena { border-left-color: #FFD700; background-color: rgba(255, 215, 0, 0.1); }
+    .card-quina { border-left-color: #4CAF50; background-color: rgba(76, 175, 80, 0.1); }
+    .card-quadra { border-left-color: #2196F3; background-color: rgba(33, 150, 243, 0.1); }
+
+    /* Destaque do Sorteio */
+    .draw-display {
+        background: linear-gradient(135deg, #1e1e1e, #2d2d2d);
+        padding: 20px;
+        border-radius: 15px;
+        text-align: center;
+        margin-bottom: 20px;
+        border: 1px solid #444;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# LÓGICA DE ESTADO
+# ==========================================
+if "public_draw" not in st.session_state:
+    st.session_state["public_draw"] = []
+
+def toggle_num(n):
+    picked = st.session_state["public_draw"]
+    if n in picked:
+        picked.remove(n)
+    else:
+        if len(picked) < 6:
+            picked.append(n)
+    st.session_state["public_draw"] = sorted(picked)
+
+# ==========================================
+# UI - TOPO
+# ==========================================
+st.markdown("<h1 style='text-align: center;'>🤞 Conferência da Sorte</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #888;'>Simule o resultado ou confira o sorteio oficial em tempo real.</p>", unsafe_allow_html=True)
+
+# --- PAINEL DE DESTAQUE (SORTEIO) ---
+picked = st.session_state["public_draw"]
+
+with st.container():
+    st.markdown('<div class="draw-display">', unsafe_allow_html=True)
+    if picked:
+        html_balls = ""
+        for n in picked:
+            html_balls += f"<div class='lottery-ball ball-hit' style='width:50px; height:50px; font-size:20px; margin: 0 5px;'>{n:02d}</div>"
+        st.markdown(html_balls, unsafe_allow_html=True)
+    else:
+        st.markdown("<h3 style='color:#555;'>Aguardando dezenas...</h3>", unsafe_allow_html=True)
+    
+    # Texto de status
+    faltam = 6 - len(picked)
+    if faltam > 0:
+        st.caption(f"Selecione mais {faltam} número(s) abaixo")
+    else:
+        st.caption("✨ Sorteio Completo! Confira os ganhadores abaixo.")
+        if st.button("🗑️ Limpar Sorteio"):
+            st.session_state["public_draw"] = []
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# --- SELETOR DE NÚMEROS (EXPANDER) ---
+# Só abre se não tiver selecionado os 6 ainda
+start_open = len(picked) < 6
+with st.expander("🔢 Selecionar Dezenas (Clique aqui)", expanded=start_open):
+    for r in range(6):
+        cols = st.columns(10)
+        for c in range(10):
+            n = r * 10 + (c + 1)
+            is_sel = n in picked
+            # Botão simples, o estilo é feito via CSS e tipo primary
+            if cols[c].button(f"{n:02d}", key=f"btn_{n}", type="primary" if is_sel else "secondary"):
+                toggle_num(n)
+                st.rerun()
+
+# ==========================================
+# RESULTADOS
+# ==========================================
+st.divider()
+
+if len(picked) == 6:
+    bets = load_bets()
+    players = load_players()
+    
+    # Mapa de nomes
+    player_map = {}
     if not players.empty:
-        for _, row in players.iterrows():
-            pid = row["player_id"]
-            nome = row["nome"]
-            if pid == id_fundo or "fundo" in str(nome).lower(): continue
-                
-            pago = pagamentos_map.get(pid, 0.0)
-            jogos_feitos = jogos_por_pessoa.get(pid, 0)
+        players["player_id"] = pd.to_numeric(players["player_id"], errors='coerce').fillna(0).astype(int)
+        player_map = players.set_index("player_id")["nome"].to_dict()
+
+    if bets.empty:
+        st.warning("📭 Nenhuma aposta cadastrada no sistema.")
+    else:
+        # Processamento
+        resultados = []
+        draw_set = set(picked)
+        
+        for _, row in bets.iterrows():
+            str_nums = str(row["numeros"]).replace("[","").replace("]","").replace(","," ")
+            lista_aposta = _to_int_list(str_nums)
             
-            # Status Jogos
-            if jogos_feitos >= JOGOS_POR_COTA:
-                status_jogos = f"✅ Jogou tudo ({jogos_feitos})"
-            elif jogos_feitos > 0:
-                status_jogos = f"⚠️ Jogando ({jogos_feitos}/{JOGOS_POR_COTA})"
-            else:
-                status_jogos = "❌ Não jogou"
-
-            item = {
-                "Nome": nome, 
-                "Pago": pago, 
-                "Jogos": jogos_feitos,
-                "StatusJogos": status_jogos
-            }
+            stats = check_bet_results(lista_aposta, draw_set)
+            acertos = stats['best_hits']
             
-            if pago >= VALOR_COTA:
-                lista_pagou.append(item)
-            else:
-                lista_devendo.append(item)
+            # Nome
+            pid = int(pd.to_numeric(row.get("player_id", 0), errors="coerce") or 0)
+            nome = player_map.get(pid, row.get("apostador", "Desconhecido"))
+            if "fundo" in str(nome).lower(): nome = "🏢 FUNDO DO BOLÃO"
 
-    # Ordenações
-    lista_pagou.sort(key=lambda x: x["Nome"])
-    lista_devendo.sort(key=lambda x: x["Pago"], reverse=True) # Quem pagou mais (parcial) aparece antes
+            # Gera HTML das bolinhas do jogo
+            html_nums = ""
+            for n in lista_aposta:
+                classe = "ball-hit" if n in draw_set else "ball-miss"
+                html_nums += f"<div class='lottery-ball {classe}'>{n:02d}</div>"
 
-    sub_pagou, sub_devendo = st.tabs([
-        f"✅ Pagamento OK ({len(lista_pagou)})", 
-        f"⚠️ Pendentes/Parciais ({len(lista_devendo)})"
-    ])
-    
-    with sub_pagou:
-        if not lista_pagou:
-            st.info("Ninguém quitou a cota ainda.")
-        else:
-            cols = st.columns(3)
-            for i, item in enumerate(lista_pagou):
-                with cols[i % 3]:
-                    with st.container(border=True):
-                        st.markdown(f"**{item['Nome']}**")
-                        st.success(f"💰 {money(item['Pago'])} (Pago)")
-                        
-                        # Mostra status dos jogos com cor apropriada
-                        if item['Jogos'] >= JOGOS_POR_COTA:
-                            st.caption(f"🎟️ {item['StatusJogos']}")
-                        else:
-                            st.markdown(f"<small style='color:orange'>🎟️ Falta jogar ({item['Jogos']}/{JOGOS_POR_COTA})</small>", unsafe_allow_html=True)
+            # Classificação visual
+            css_class = ""
+            label_premio = ""
+            if acertos == 6:
+                css_class = "card-sena"
+                label_premio = "🏆 SENA!"
+            elif acertos == 5:
+                css_class = "card-quina"
+                label_premio = "🥈 QUINA"
+            elif acertos == 4:
+                css_class = "card-quadra"
+                label_premio = "🥉 QUADRA"
 
-    with sub_devendo:
-        if not lista_devendo:
-            st.success("Todo mundo pagou! 🎉")
-        else:
-            cols = st.columns(3)
-            for i, item in enumerate(lista_devendo):
-                with cols[i % 3]:
-                    with st.container(border=True):
-                        st.markdown(f"**{item['Nome']}**")
-                        
-                        falta = VALOR_COTA - item['Pago']
-                        if item['Pago'] > 0:
-                            st.warning(f"💰 Parcial: {money(item['Pago'])}")
-                            st.caption(f"Falta: {money(falta)}")
-                        else:
-                            st.error(f"💰 Pendente (R$ 0,00)")
-                        
-                        # Status Jogos
-                        st.caption(f"🎟️ {item['StatusJogos']}")
+            resultados.append({
+                "Nome": nome,
+                "Dezenas_HTML": html_nums,
+                "Acertos": acertos,
+                "CSS": css_class,
+                "Label": label_premio,
+                "Qtd_Dezenas": len(lista_aposta)
+            })
+            
+        # Ordenação: Acertos (decrescente) -> Qtd Dezenas (crescente - mais difícil)
+        resultados.sort(key=lambda x: (x['Acertos'], -x['Qtd_Dezenas']), reverse=True)
+        
+        # --- PLACAR GERAL (METRICS) ---
+        st.subheader("📊 Placar do Grupo")
+        
+        # Confetes se tiver Sena!
+        senas = len([r for r in resultados if r['Acertos'] == 6])
+        quinas = len([r for r in resultados if r['Acertos'] == 5])
+        quadras = len([r for r in resultados if r['Acertos'] == 4])
+        
+        if senas > 0:
+            st.balloons()
+            st.success(f"🎉 TEMOS {senas} SENA(S)! ESTAMOS RICOS! 🎉")
+        elif quinas > 0:
+            st.warning(f"🤩 TEMOS {quinas} QUINA(S)! Passou perto!")
+        elif quadras > 0:
+            st.info(f"🙂 Temos {quadras} Quadra(s). Já paga o churrasco!")
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("🏆 Sena (6)", senas)
+        c2.metric("🥈 Quina (5)", quinas)
+        c3.metric("🥉 Quadra (4)", quadras)
+        c4.metric("🍀 Melhor Jogo", f"{max(r['Acertos'] for r in resultados)} acertos")
+        
+        st.write("")
+        st.write("---")
+        
+        # --- LISTAGEM DETALHADA (CARDS) ---
+        st.subheader("📋 Detalhe dos Jogos")
+        
+        for r in resultados:
+            # Só mostra destaque se tiver >= 4 acertos, ou mostra todos sem destaque
+            # Vamos mostrar todos, mas os vencedores ficam coloridos pelo CSS
+            
+            with st.container():
+                st.markdown(f"""
+                <div class="player-card {r['CSS']}">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <div>
+                            <span style="font-size: 18px; font-weight: bold;">{r['Nome']}</span>
+                            <span style="font-size: 12px; color: #888; margin-left: 10px;">({r['Qtd_Dezenas']} dezenas)</span>
+                        </div>
+                        <div style="text-align: right;">
+                            <span style="font-size: 24px; font-weight: bold; color: { '#FFD700' if r['Acertos']==6 else '#eee' };">
+                                {r['Acertos']} pts
+                            </span>
+                            <br>
+                            <span style="font-size: 12px; font-weight: bold; color: #4CAF50;">{r['Label']}</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap;">
+                        {r['Dezenas_HTML']}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
-# ------------------------------------------
-# ABA 3: FUNDO EXTRA
-# ------------------------------------------
-with tab_fundo:
-    st.subheader("🏦 O Fundo do Bolão")
-    st.markdown("Valores arrecadados além da cota individual (sobras de R$ 30,00), usados para jogos coletivos.")
-
-    # Cálculos Específicos do Fundo
-    arrecadado_fundo = 0.0
-    for pid, valor_pago in pagamentos_map.items():
-        if pid == id_fundo: continue
-        sobra = max(0.0, valor_pago - CUSTO_JOGOS_INDIVIDUAIS)
-        arrecadado_fundo += sobra
-
-    gasto_fundo_calc = 0.0
-    if not bets.empty:
-        is_fundo_bet = (bets["player_id"] == id_fundo) | (bets["apostador"].str.lower().str.contains("fundo"))
-        gasto_fundo_calc = bets[is_fundo_bet]["custo_total"].sum()
-
-    saldo_fundo_calc = arrecadado_fundo - gasto_fundo_calc
-
-    with st.container(border=True):
-        c1, c2, c3 = st.columns(3)
-        c1.metric("📥 Total Arrecadado (Fundo)", money(arrecadado_fundo), help="Soma dos R$ 20,00 de cada participante")
-        c2.metric("🚀 Jogado pelo Fundo", money(gasto_fundo_calc), help="Valor já apostado em bolões extras")
-        cor_f = "normal" if saldo_fundo_calc >= 0 else "inverse"
-        c3.metric("💰 Saldo Disponível", money(saldo_fundo_calc), delta="Para novos jogos", delta_color=cor_f)
-
-st.markdown("---")
-st.caption("Sistema desenvolvido por João Paulo Rodrigues. Boa sorte! 🍀")
+else:
+    # Mensagem de espera bonita
+    st.markdown("""
+    <div style="text-align: center; padding: 50px; color: #666;">
+        <h2>🎰 O Sorteio ainda não começou</h2>
+        <p>Selecione as dezenas acima para simular resultados ou aguarde o sorteio oficial.</p>
+    </div>
+    """, unsafe_allow_html=True)
