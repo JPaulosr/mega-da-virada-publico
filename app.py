@@ -24,10 +24,17 @@ st.title("📢 Transparência do Bolão 2025")
 st.markdown("Acompanhe a saúde financeira e os jogos do grupo.")
 st.divider()
 
-# --- CARREGAMENTO DE DADOS ---
-bets = load_bets()
-players = load_players()
-contrib = load_contributions()
+# --- CARREGAMENTO DE DADOS (COM TRATAMENTO DE ERRO DE CONEXÃO) ---
+try:
+    with st.spinner("Carregando dados do servidor..."):
+        bets = load_bets()
+        players = load_players()
+        contrib = load_contributions()
+except Exception as e:
+    st.error("⚠️ Não foi possível conectar ao banco de dados.")
+    st.warning("Verifique se as credenciais (Secrets) estão configuradas corretamente no painel do Streamlit Cloud.")
+    st.code(str(e))
+    st.stop()
 
 # Configuração de Valores
 VALOR_COTA = 50.00
