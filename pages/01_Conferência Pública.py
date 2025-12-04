@@ -242,25 +242,26 @@ if len(picked) == 6:
         for r in resultados:
             premio_html = f"<div style='color: {r['cor_pts']}; font-size: 11px; font-weight: bold; margin-top: 4px;'>{r['label']}</div>" if r['label'] else ""
             
+            # CORREÇÃO AQUI: Removemos os espaços do início das linhas do HTML
             st.markdown(f"""
-            <div class="player-card {r['css']}">
-                <div class="card-header">
-                    <div>
-                        <div class="card-name">{r['nome']}</div>
-                        <div class="card-sub">{r['qtd']} dezenas</div>
-                    </div>
-                    <div style="text-align: center;">
-                        <div class="card-points" style="color: {r['cor_pts']}; border: 1px solid {r['cor_pts']};">
-                            {r['acertos']}
-                        </div>
-                        {premio_html}
-                    </div>
-                </div>
-                <div class="card-dezenas">
-                    {r['html']}
-                </div>
+<div class="player-card {r['css']}">
+    <div class="card-header">
+        <div>
+            <div class="card-name">{r['nome']}</div>
+            <div class="card-sub">{r['qtd']} dezenas</div>
+        </div>
+        <div style="text-align: center;">
+            <div class="card-points" style="color: {r['cor_pts']}; border: 1px solid {r['cor_pts']};">
+                {r['acertos']}
             </div>
-            """, unsafe_allow_html=True)
+            {premio_html}
+        </div>
+    </div>
+    <div class="card-dezenas">
+        {r['html']}
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 else:
     st.info("👆 Selecione as 6 dezenas acima para conferir.")
