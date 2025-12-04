@@ -33,7 +33,6 @@ try:
 except Exception as e:
     st.error("⚠️ Não foi possível conectar ao banco de dados.")
     st.warning("Verifique se as credenciais (Secrets) estão configuradas corretamente no painel do Streamlit Cloud.")
-    # Mostra o erro técnico apenas se necessário para debug
     with st.expander("Ver detalhes do erro"):
         st.code(str(e))
     st.stop()
@@ -71,9 +70,23 @@ if not bets.empty:
     # Conta quantos jogos cada ID tem
     jogos_por_pessoa = bets["player_id"].value_counts().to_dict()
 
+# --- CÁLCULO DE PARTICIPANTES (PAGOS vs PENDENTES) ---
 qtd_jogadores_reais = 0
+qtd_pagantes = 0
+qtd_pendentes = 0
+
 if not players.empty:
-    qtd_jogadores_reais = players[~players['nome'].str.contains("Fundo", case=False, na=False)].shape[0]
+    # Filtra jogadores reais (exclui Fundo)
+    df_reais = players[~players['nome'].str.contains("Fundo", case=False, na=False)]
+    qtd_jogadores_reais = len(df_reais)
+    
+    for pid in df_reais["player_id"].unique():
+        valor_pago = pagamentos_map.get(pid, 0.0)
+        # Consideramos "Pagante" quem já pagou pelo menos a cota cheia
+        if valor_pago >= VALOR_COTA:
+            qtd_pagantes += 1
+        else:
+            qtd_pendentes += 1
 
 # --- CÁLCULOS GERAIS (CAIXA) ---
 total_arrecadado_geral = 0.0
@@ -108,10 +121,13 @@ with st.container(border=True):
     # Linha principal com 4 métricas
     c1, c2, c3, c4 = st.columns(4)
     
+    # Métrica de Jogadores Atualizada com Delta
     c1.metric(
-        "👥 Jogadores", 
-        qtd_jogadores_reais, 
-        help="Quantidade total de participantes no grupo."
+        "👥 Participantes", 
+        f"{qtd_pagantes}/{qtd_jogadores_reais} Pagos", 
+        help=f"Total: {qtd_jogadores_reais} | Pagos: {qtd_pagantes} | Pendentes: {qtd_pendentes}",
+        delta=f"{qtd_pendentes} pendentes" if qtd_pendentes > 0 else "Todos pagaram! 🎉",
+        delta_color="off" if qtd_pendentes > 0 else "normal"
     )
     
     c2.metric(
