@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+pdfplumber
+rapidfuzz
+openpyxl
+xlrd
+streamlit-extras>=0.4.3
