@@ -3,14 +3,15 @@ import pandas as pd
 import sys
 import os
 
-# Garante path
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-from utils_mb import load_bets, load_players, load_contributions, _to_int_list, money
-
+# Configuração da Página
 st.set_page_config(page_title="Resumo do Bolão", page_icon="📢", layout="wide")
+
+# Importação direta (já que utils_mb.py estará na mesma pasta)
+try:
+    from utils_mb import load_bets, load_players, load_contributions, _to_int_list, money
+except ImportError:
+    st.error("Erro ao carregar 'utils_mb.py'. Verifique se o arquivo está na mesma pasta do app.py")
+    st.stop()
 
 # --- CABEÇALHO ---
 st.title("📢 Transparência do Bolão 2025")
