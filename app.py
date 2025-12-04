@@ -6,12 +6,18 @@ import os
 # Configuração da Página
 st.set_page_config(page_title="Resumo do Bolão", page_icon="📢", layout="wide")
 
-# Importação direta (já que utils_mb.py estará na mesma pasta)
+# Tenta importar utils_mb da mesma pasta
 try:
     from utils_mb import load_bets, load_players, load_contributions, _to_int_list, money
 except ImportError:
-    st.error("Erro ao carregar 'utils_mb.py'. Verifique se o arquivo está na mesma pasta do app.py")
-    st.stop()
+    # Fallback: Tenta adicionar o diretório atual ao path se a importação falhar
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path.append(current_dir)
+    try:
+        from utils_mb import load_bets, load_players, load_contributions, _to_int_list, money
+    except ImportError as e:
+        st.error(f"Erro crítico: Não foi possível encontrar o arquivo 'utils_mb.py'. Certifique-se de que ele está na mesma pasta que este aplicativo. Detalhes: {e}")
+        st.stop()
 
 # --- CABEÇALHO ---
 st.title("📢 Transparência do Bolão 2025")
