@@ -4,282 +4,263 @@ import sys
 import os
 
 # Garante path
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+try:
+    from utils_mb import load_bets, load_players, check_bet_results, _to_int_list
+except ImportError:
+    # Fallback para execução local/nuvem
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from utils_mb import load_bets, load_players, check_bet_results, _to_int_list
 
-from utils_mb import load_bets, load_players, check_bet_results, _to_int_list
-
-st.set_page_config(page_title="Conferência Pública", page_icon="🤞", layout="wide")
+st.set_page_config(page_title="Conferência Pública", page_icon="🤞", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================
-# ESTILO CSS PERSONALIZADO (VISUAL TV)
+# CSS MOBILE-FIRST (VISUAL TV)
 # ==========================================
 st.markdown("""
 <style>
-    /* Fundo geral e fontes */
-    .block-container { padding-top: 2rem; padding-bottom: 5rem; }
+    /* Ajustes gerais para Mobile */
+    .block-container { 
+        padding-top: 1rem; 
+        padding-bottom: 3rem; 
+        padding-left: 0.5rem; 
+        padding-right: 0.5rem; 
+    }
     
-    /* Bolinhas de Sorteio (Seleção e Resultado) */
+    /* Bolinhas de Sorteio (Estilo TV 3D) */
     .lottery-ball {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 40px;
-        height: 40px;
+        width: 40px; height: 40px;
         border-radius: 50%;
         background: radial-gradient(circle at 30% 30%, #ffffff, #e0e0e0);
         color: #333;
         font-weight: bold;
         font-size: 16px;
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
-        margin: 2px;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+        margin: 3px;
         border: 1px solid #ccc;
     }
     
-    /* Bolinha Selecionada / Acerto */
+    /* Bolinha Acerto (Verde Brilhante) */
     .ball-hit {
-        background: radial-gradient(circle at 30% 30%, #4CAF50, #2E7D32);
-        color: white;
-        border: 1px solid #1B5E20;
-        box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+        background: radial-gradient(circle at 30% 30%, #4CAF50, #1B5E20);
+        color: white; 
+        border: 1px solid #004D40; 
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
         transform: scale(1.1);
+        z-index: 2;
     }
     
-    /* Bolinha Erro (nos resultados) */
-    .ball-miss {
-        background: #f0f0f0;
-        color: #bbb;
-        border: 1px solid #ddd;
+    /* Bolinha Erro (Opaca) */
+    .ball-miss { 
+        background: #333; 
+        color: #777; 
+        border: 1px solid #444; 
         opacity: 0.6;
+        box-shadow: none;
     }
 
-    /* Botões de Seleção (Grid) */
-    div.stButton > button {
-        width: 100%;
-        border-radius: 8px;
-        font-weight: bold;
-        border: 1px solid #444;
-        transition: all 0.2s;
-    }
-    div.stButton > button:hover {
-        border-color: #4CAF50;
-        color: #4CAF50;
-        transform: translateY(-2px);
-    }
-
-    /* Card de Jogador */
+    /* CARD DE JOGADOR (Material Design) */
     .player-card {
-        background-color: #262730;
-        border-radius: 10px;
+        background-color: #1e1e1e;
+        border-radius: 12px;
         padding: 15px;
-        margin-bottom: 10px;
-        border-left: 5px solid #555;
-        transition: transform 0.2s;
+        margin-bottom: 12px;
+        border: 1px solid #333;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        position: relative;
+        overflow: hidden;
     }
-    .player-card:hover {
-        transform: scale(1.01);
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-    }
-    .card-sena { border-left-color: #FFD700; background-color: rgba(255, 215, 0, 0.1); }
-    .card-quina { border-left-color: #4CAF50; background-color: rgba(76, 175, 80, 0.1); }
-    .card-quadra { border-left-color: #2196F3; background-color: rgba(33, 150, 243, 0.1); }
+    
+    /* Faixa lateral colorida baseada no prêmio */
+    .card-sena { border-left: 6px solid #FFD700; background: linear-gradient(90deg, rgba(255, 215, 0, 0.1), transparent); }
+    .card-quina { border-left: 6px solid #4CAF50; background: linear-gradient(90deg, rgba(76, 175, 80, 0.1), transparent); }
+    .card-quadra { border-left: 6px solid #2196F3; background: linear-gradient(90deg, rgba(33, 150, 243, 0.1), transparent); }
+    .card-normal { border-left: 6px solid #555; }
 
-    /* Destaque do Sorteio */
-    .draw-display {
-        background: linear-gradient(135deg, #1e1e1e, #2d2d2d);
-        padding: 20px;
-        border-radius: 15px;
-        text-align: center;
-        margin-bottom: 20px;
-        border: 1px solid #444;
+    /* Layout Interno do Card */
+    .card-header {
+        display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;
     }
+    .card-name { font-size: 16px; font-weight: bold; color: #fff; line-height: 1.2; }
+    .card-sub { font-size: 12px; color: #aaa; margin-top: 2px; }
+    .card-points { 
+        font-size: 22px; font-weight: 900; 
+        background: #000; padding: 5px 10px; border-radius: 8px;
+        min-width: 40px; text-align: center;
+    }
+    .card-dezenas { display: flex; flex-wrap: wrap; gap: 2px; }
+
+    /* Painel de Sorteio (Topo) */
+    .draw-panel {
+        background: #111; 
+        padding: 20px; 
+        border-radius: 16px; 
+        text-align: center; 
+        margin-bottom: 20px; 
+        border: 1px solid #333;
+        box-shadow: 0 0 20px rgba(0,0,0,0.5) inset;
+    }
+    .draw-title { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #888; margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# LÓGICA DE ESTADO
+# LÓGICA
 # ==========================================
 if "public_draw" not in st.session_state:
     st.session_state["public_draw"] = []
 
-def toggle_num(n):
-    picked = st.session_state["public_draw"]
-    if n in picked:
-        picked.remove(n)
-    else:
-        if len(picked) < 6:
-            picked.append(n)
-    st.session_state["public_draw"] = sorted(picked)
-
 # ==========================================
-# UI - TOPO
+# UI - TOPO (SORTEIO)
 # ==========================================
-st.markdown("<h1 style='text-align: center;'>🤞 Conferência da Sorte</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #888;'>Simule o resultado ou confira o sorteio oficial em tempo real.</p>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center; margin-bottom: 5px;'>🤞 Conferência da Sorte</h2>", unsafe_allow_html=True)
 
-# --- PAINEL DE DESTAQUE (SORTEIO) ---
 picked = st.session_state["public_draw"]
 
+# --- PAINEL DE RESULTADO ---
 with st.container():
-    st.markdown('<div class="draw-display">', unsafe_allow_html=True)
+    st.markdown('<div class="draw-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="draw-title">Dezenas Sorteada</div>', unsafe_allow_html=True)
     if picked:
-        html_balls = ""
-        for n in picked:
-            html_balls += f"<div class='lottery-ball ball-hit' style='width:50px; height:50px; font-size:20px; margin: 0 5px;'>{n:02d}</div>"
-        st.markdown(html_balls, unsafe_allow_html=True)
+        # Mostra as bolinhas bonitas
+        html = "".join([f"<div class='lottery-ball ball-hit' style='width:45px; height:45px; font-size:18px;'>{n:02d}</div>" for n in sorted(picked)])
+        st.markdown(html, unsafe_allow_html=True)
     else:
-        st.markdown("<h3 style='color:#555;'>Aguardando dezenas...</h3>", unsafe_allow_html=True)
-    
-    # Texto de status
-    faltam = 6 - len(picked)
-    if faltam > 0:
-        st.caption(f"Selecione mais {faltam} número(s) abaixo")
-    else:
-        st.caption("✨ Sorteio Completo! Confira os ganhadores abaixo.")
-        if st.button("🗑️ Limpar Sorteio"):
-            st.session_state["public_draw"] = []
-            st.rerun()
+        st.caption("Aguardando sorteio...")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- SELETOR DE NÚMEROS (EXPANDER) ---
-# Só abre se não tiver selecionado os 6 ainda
-start_open = len(picked) < 6
-with st.expander("🔢 Selecionar Dezenas (Clique aqui)", expanded=start_open):
-    for r in range(6):
-        cols = st.columns(10)
-        for c in range(10):
-            n = r * 10 + (c + 1)
-            is_sel = n in picked
-            # Botão simples, o estilo é feito via CSS e tipo primary
-            if cols[c].button(f"{n:02d}", key=f"btn_{n}", type="primary" if is_sel else "secondary"):
-                toggle_num(n)
-                st.rerun()
+# --- INPUT (OTIMIZADO PARA MOBILE) ---
+# Usamos Multiselect porque é nativo e não quebra no celular
+col_sel, col_btn = st.columns([4, 1])
+with col_sel:
+    novos_numeros = st.multiselect(
+        "Simular Resultado (Escolha 6)", 
+        options=list(range(1, 61)),
+        default=picked,
+        format_func=lambda x: f"{x:02d}",
+        placeholder="Digite ou selecione os números...",
+        max_selections=6
+    )
+
+# Atualiza estado
+if novos_numeros != st.session_state["public_draw"]:
+    st.session_state["public_draw"] = sorted(novos_numeros)
+    st.rerun()
+
+if st.button("Limpar", type="secondary", use_container_width=True):
+    st.session_state["public_draw"] = []
+    st.rerun()
 
 # ==========================================
-# RESULTADOS
+# RESULTADOS (CARDS)
 # ==========================================
 st.divider()
 
 if len(picked) == 6:
-    bets = load_bets()
-    players = load_players()
-    
-    # Mapa de nomes
-    player_map = {}
-    if not players.empty:
-        players["player_id"] = pd.to_numeric(players["player_id"], errors='coerce').fillna(0).astype(int)
-        player_map = players.set_index("player_id")["nome"].to_dict()
+    # Carrega dados
+    try:
+        bets = load_bets()
+        players = load_players()
+    except Exception:
+        st.error("Erro ao conectar no banco.")
+        st.stop()
 
     if bets.empty:
-        st.warning("📭 Nenhuma aposta cadastrada no sistema.")
+        st.info("Nenhuma aposta cadastrada.")
     else:
-        # Processamento
-        resultados = []
+        # Mapa de nomes
+        player_map = {}
+        if not players.empty:
+            players["player_id"] = pd.to_numeric(players["player_id"], errors='coerce').fillna(0).astype(int)
+            player_map = players.set_index("player_id")["nome"].to_dict()
+
         draw_set = set(picked)
-        
+        resultados = []
+
         for _, row in bets.iterrows():
             str_nums = str(row["numeros"]).replace("[","").replace("]","").replace(","," ")
             lista_aposta = _to_int_list(str_nums)
             
+            # Processa acertos
             stats = check_bet_results(lista_aposta, draw_set)
             acertos = stats['best_hits']
             
             # Nome
             pid = int(pd.to_numeric(row.get("player_id", 0), errors="coerce") or 0)
             nome = player_map.get(pid, row.get("apostador", "Desconhecido"))
-            if "fundo" in str(nome).lower(): nome = "🏢 FUNDO DO BOLÃO"
+            if "fundo" in str(nome).lower(): nome = "🏢 FUNDO BOLÃO"
 
-            # Gera HTML das bolinhas do jogo
-            html_nums = ""
+            # HTML Bolinhas (Miniaturas para o card)
+            html_balls = ""
             for n in lista_aposta:
-                classe = "ball-hit" if n in draw_set else "ball-miss"
-                html_nums += f"<div class='lottery-ball {classe}'>{n:02d}</div>"
+                css = "ball-hit" if n in draw_set else "ball-miss"
+                html_balls += f"<div class='lottery-ball {css}' style='width:30px; height:30px; font-size:12px;'>{n:02d}</div>"
 
-            # Classificação visual
-            css_class = ""
+            # Estilo do Card
+            css_class = "card-normal"
+            cor_pts = "#555"
             label_premio = ""
-            if acertos == 6:
-                css_class = "card-sena"
-                label_premio = "🏆 SENA!"
-            elif acertos == 5:
-                css_class = "card-quina"
-                label_premio = "🥈 QUINA"
-            elif acertos == 4:
-                css_class = "card-quadra"
-                label_premio = "🥉 QUADRA"
+            
+            if acertos == 6: 
+                css_class="card-sena"; cor_pts="#FFD700"; label_premio="SENA 🏆"
+            elif acertos == 5: 
+                css_class="card-quina"; cor_pts="#4CAF50"; label_premio="QUINA 🥈"
+            elif acertos == 4: 
+                css_class="card-quadra"; cor_pts="#2196F3"; label_premio="QUADRA 🥉"
 
             resultados.append({
-                "Nome": nome,
-                "Dezenas_HTML": html_nums,
-                "Acertos": acertos,
-                "CSS": css_class,
-                "Label": label_premio,
-                "Qtd_Dezenas": len(lista_aposta)
+                "nome": nome, "html": html_balls, "acertos": acertos,
+                "css": css_class, "cor_pts": cor_pts, "label": label_premio,
+                "qtd": len(lista_aposta)
             })
-            
-        # Ordenação: Acertos (decrescente) -> Qtd Dezenas (crescente - mais difícil)
-        resultados.sort(key=lambda x: (x['Acertos'], -x['Qtd_Dezenas']), reverse=True)
-        
-        # --- PLACAR GERAL (METRICS) ---
-        st.subheader("📊 Placar do Grupo")
-        
-        # Confetes se tiver Sena!
-        senas = len([r for r in resultados if r['Acertos'] == 6])
-        quinas = len([r for r in resultados if r['Acertos'] == 5])
-        quadras = len([r for r in resultados if r['Acertos'] == 4])
-        
-        if senas > 0:
+
+        # Ordena: Acertos > Qtd Dezenas
+        resultados.sort(key=lambda x: (x['acertos'], -x['qtd']), reverse=True)
+
+        # --- PLACAR ---
+        senas = len([r for r in resultados if r['acertos'] == 6])
+        quinas = len([r for r in resultados if r['acertos'] == 5])
+        quadras = len([r for r in resultados if r['acertos'] == 4])
+
+        if senas > 0: 
             st.balloons()
-            st.success(f"🎉 TEMOS {senas} SENA(S)! ESTAMOS RICOS! 🎉")
-        elif quinas > 0:
-            st.warning(f"🤩 TEMOS {quinas} QUINA(S)! Passou perto!")
-        elif quadras > 0:
-            st.info(f"🙂 Temos {quadras} Quadra(s). Já paga o churrasco!")
+            st.success(f"🎉 TEMOS {senas} SENA(S)!")
         
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("🏆 Sena (6)", senas)
-        c2.metric("🥈 Quina (5)", quinas)
-        c3.metric("🥉 Quadra (4)", quadras)
-        c4.metric("🍀 Melhor Jogo", f"{max(r['Acertos'] for r in resultados)} acertos")
+        # Dashboard Compacto
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Sena (6)", senas)
+        c2.metric("Quina (5)", quinas)
+        c3.metric("Quadra (4)", quadras)
         
         st.write("")
-        st.write("---")
-        
-        # --- LISTAGEM DETALHADA (CARDS) ---
-        st.subheader("📋 Detalhe dos Jogos")
+
+        # --- LISTA DE CARDS ---
+        st.caption(f"Conferindo {len(resultados)} jogos...")
         
         for r in resultados:
-            # Só mostra destaque se tiver >= 4 acertos, ou mostra todos sem destaque
-            # Vamos mostrar todos, mas os vencedores ficam coloridos pelo CSS
+            premio_html = f"<div style='color: {r['cor_pts']}; font-size: 11px; font-weight: bold; margin-top: 4px;'>{r['label']}</div>" if r['label'] else ""
             
-            with st.container():
-                st.markdown(f"""
-                <div class="player-card {r['CSS']}">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <div>
-                            <span style="font-size: 18px; font-weight: bold;">{r['Nome']}</span>
-                            <span style="font-size: 12px; color: #888; margin-left: 10px;">({r['Qtd_Dezenas']} dezenas)</span>
-                        </div>
-                        <div style="text-align: right;">
-                            <span style="font-size: 24px; font-weight: bold; color: { '#FFD700' if r['Acertos']==6 else '#eee' };">
-                                {r['Acertos']} pts
-                            </span>
-                            <br>
-                            <span style="font-size: 12px; font-weight: bold; color: #4CAF50;">{r['Label']}</span>
-                        </div>
+            st.markdown(f"""
+            <div class="player-card {r['css']}">
+                <div class="card-header">
+                    <div>
+                        <div class="card-name">{r['nome']}</div>
+                        <div class="card-sub">{r['qtd']} dezenas</div>
                     </div>
-                    <div style="display: flex; flex-wrap: wrap;">
-                        {r['Dezenas_HTML']}
+                    <div style="text-align: center;">
+                        <div class="card-points" style="color: {r['cor_pts']}; border: 1px solid {r['cor_pts']};">
+                            {r['acertos']}
+                        </div>
+                        {premio_html}
                     </div>
                 </div>
-                """, unsafe_allow_html=True)
+                <div class="card-dezenas">
+                    {r['html']}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
 else:
-    # Mensagem de espera bonita
-    st.markdown("""
-    <div style="text-align: center; padding: 50px; color: #666;">
-        <h2>🎰 O Sorteio ainda não começou</h2>
-        <p>Selecione as dezenas acima para simular resultados ou aguarde o sorteio oficial.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.info("👆 Selecione as 6 dezenas acima para conferir.")
