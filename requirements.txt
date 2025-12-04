@@ -6,3 +6,5 @@ rapidfuzz
 openpyxl
 xlrd
 streamlit-extras>=0.4.3
+gspread
+oauth2client
